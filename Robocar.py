@@ -1,8 +1,19 @@
 from pcf8574 import PCF8574
+from enum import Enum
 import time
 import numpy as np
 from pynput.keyboard import Key, Listener
+import cv2
 
+class Movement(Enum):
+    UNDEFINED = 0
+    FORWARD = 1
+    RIGHT = 2 
+    LEFT = 3
+    STOP = 4
+    SPIN_CLOCKWISE = 5
+    SPIN_COUNTERCLOCKWISE = 6    
+    
 class RoboCar:
     i2c_port_num = 1
     pcf_address = 0x25
@@ -100,6 +111,42 @@ class RoboCarController:
             on_press=self.on_press,
             on_release=self.on_release) as listener:
             listener.join()
+            
+    def find_next_movement(img_init, min_color=np.array([13, 40, 0]), max_color=np.array([70, 255, 255])):
+        img = cv2.cvtColor(img_init, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(img[img.shape[0]//2-1:], min_color, max_color)
+        cv2.imshow("Mask", mask)
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if len(contours) != 0:
+            c = max(contours, key = cv2.contourArea)
+            epsilon = 0.02*cv2.arcLength(c,True)
+            approx = cv2.approxPolyDP(c,epsilon,True)
+            arg_sorted = np.argsort(approx, axis=0)
+            y_sorted = arg_sorted[:, :, 1].flatten()
+            #print(y_sorted, approx)
+            x_cur_top = int(np.mean(approx[y_sorted][:2][:, :, 0]))
+            x_cur_bot = int(np.mean(approx[y_sorted][2:][:, :, 0]))
+            #print(x_cur_top, x_cur_bot)
+            y_cur_top = int(np.mean(approx[y_sorted][:2][:, :, 1]))
+            y_cur_bot = int(np.mean(approx[y_sorted][2:][:, :, 1]))
+            x_center = mask.shape[1] // 2
+            print(x_cur_top - x_center, " ", x_cur_bot - x_center)
+            if (abs(x_cur_top - x_center)<20) and (abs(x_cur_bot - x_center)<20):
+                print("FORWARD")
+            elif (x_cur_top > x_center) and (x_cur_bot < x_center): 
+                print("LEFT")
+            elif (x_cur_top > x_center) and (x_cur_bot > x_center): 
+                print("LEFT")
+            elif (x_cur_top < x_center) and (x_cur_bot > x_center):
+                print("RIGHT")
+            elif (x_cur_top < x_center) and (x_cur_bot < x_center):
+                print("RIGHT")
+            res = cv2.drawContours(img_init[img.shape[0]//2-1:], approx, -1, (0, 255, 0), 3)
+            cv2.line(img_init[img.shape[0]//2-1:], (x_center, y_cur_top), (x_center, y_cur_bot), (0, 0, 255), 3)
+            cv2.line(img_init[img.shape[0]//2-1:], (x_cur_top, y_cur_top), (x_cur_bot, y_cur_bot), (255, 0, 0), 3)
+            cv2.imshow("Frame", res)
+        cv2.waitKey()
+        return 
             
 if __name__=="__main__":
     robocar = RoboCar()
