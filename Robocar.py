@@ -1,4 +1,4 @@
-#from pcf8574 import PCF8574
+from pcf8574 import PCF8574
 import time
 import numpy as np
 from pynput.keyboard import Key, Listener
@@ -10,9 +10,10 @@ class RoboCar:
     duty_cycle = 3 
     
     def __init__(self, port = i2c_port_num, address = pcf_address):
-        #pcf = PCF8574(port, address)
+        self.pcf = PCF8574(port, address)
+        self.stop()
         #self.port = pcf.port
-        self.port = self.stop()
+        #self.port = self.stop()
         
     def turn_right_wheel_back(self):
         return np.array([True, True, True, True, True, False, True, True], \
@@ -31,28 +32,28 @@ class RoboCar:
             dtype=bool)
     
     def stop(self):
-        return np.ones(8, dtype=bool)
+        self.pcf.port = np.ones(8, dtype=bool)
     
     def move_forward(self):
-        return np.bitwise_and(self.turn_right_wheel_forward(), 
+        self.pcf.port = np.bitwise_and(self.turn_right_wheel_forward(), 
                        self.turn_left_wheel_forward())
         
     def move_backward(self):
-        return np.bitwise_and(self.turn_right_wheel_back(), 
+        self.pcf.port = np.bitwise_and(self.turn_right_wheel_back(), 
                        self.turn_left_wheel_back())
         
     def turn_left(self):
-        return self.turn_right_wheel_forward()
+        self.pcf.port = self.turn_right_wheel_forward()
         
     def turn_right(self):
-        return self.turn_left_wheel_forward()
+        self.pcf.port = self.turn_left_wheel_forward()
         
     def spin_clockwise(self):
-        return np.bitwise_and(self.turn_left_wheel_forward(), 
+        self.pcf.port = np.bitwise_and(self.turn_left_wheel_forward(), 
                        self.turn_right_wheel_back())
     
     def spin_counter_clockwise(self):
-        return np.bitwise_and(self.turn_right_wheel_forward(), 
+        self.pcf.port = np.bitwise_and(self.turn_right_wheel_forward(), 
                        self.turn_left_wheel_back())
         
 class RoboCarController:
