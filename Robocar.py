@@ -4,6 +4,7 @@ import time
 import numpy as np
 from pynput.keyboard import Key, Listener
 import cv2
+from threading import Thread
 
 class Movement(Enum):
     UNDEFINED = 0
@@ -13,6 +14,26 @@ class Movement(Enum):
     STOP = 4
     SPIN_CLOCKWISE = 5
     SPIN_COUNTERCLOCKWISE = 6    
+   
+class RoboThread:
+    self.stopped = True
+    self.t = Thread(target = self.update, args=())
+    self.t.daemon = True   
+    
+    def start(self):
+        self.stopped = False
+        self.t.start()
+        
+    def stop(stop):
+        self.stopped = True
+        
+    def update(self, duty_cycle, func):
+        while True:
+            if self.stopped is True:
+                break
+            
+                
+                
     
 class RoboCar:
     i2c_port_num = 1
