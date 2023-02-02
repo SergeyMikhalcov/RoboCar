@@ -1,274 +1,116 @@
 from threading import Thread, Lock
 from time import sleep, time
-from pcf8574 import PCF8574
+from PCF8574 import PCF8574
 import numpy as np
-from enum import Enum
-
-class Movement(Enum):
-    UNDEFINED = 0
-    FORWARD = 1
-    BACKWARD = 2
-    STOP = 3
-
-class WheelMotor:
-    time_cycle = 0.01
+from Wheel import Wheel
+        
+class CarWithTwoWheels:
+    def __init__(self) -> None:
+        self.array_for_port = np.zeros(8, dtype=np.bool8)
+        self.right_wheel: Wheel = Wheel("Right Wheel", self.array_for_port[4: 6])
+        self.left_wheel: Wheel = Wheel("Left Wheel", self.array_for_port[6: 8])
+        self.control_thread = Thread(target=self.on_change)
+        self.control_thread.daemon = True
+        self._linear_velocity: float = (self.right_wheel.velocity + self.left_wheel.velocity) / 2
+        self.wheel_base: float = 0.12
+        self._angular_velocity: float = (self.left_wheel.velocity - self.right_wheel.velocity) / self.wheel_base
+        self.is_control_running: bool = True
+        
+    def on_change(self):
+        while self.is_control_running:
+            sleep(0.05)
+            #print(self.right_wheel)
+            #print(self.left_wheel)
+            print(self.array_for_port)
+            # if self.ar_changes:
+            #     self.send_to_port()    
+            #     self.ar_changes = False
+        
+    def send_to_port(self):
+        print(self.array_for_port)
     
-    def __init__(self, position, time_cycle = time_cycle):
-        self.position = position
-        self.velocity = 0
-        self.state = Movement.STOP
-        self.next_velocity = 0
-        self.next_state = Movement.STOP
-        self.time_cycle = time_cycle
-        
-        self.lock = Lock()
-        self.t = Thread(target = self.movement_cycle)
-        self.t.daemon = True
+    @property
+    def linear_velocity(self) -> float:
+        return self._linear_velocity
     
-    def update_state(self):
-        self.state = self.next_state
-        self.velocity = self.next_velocity
+    @linear_velocity.setter
+    def linear_velocity(self, value: float) -> None:
+        self._linear_velocity = value
+        self.left_wheel.velocity = value
+        self.right_wheel.velocity = value
+        
+    @linear_velocity.deleter
+    def linear_velocity(self) -> None:
+        del self._linear_velocity
+        
+    @property
+    def angular_velocity(self) -> float:
+        return self._angular_velocity
     
-    def set_next_state_velocity(self, state: Movement, velocity: float):
-        self.lock.acquire()
-        self.next_state = state
-        self.next_velocity = velocity
-        self.lock.release()
+    @angular_velocity.setter
+    def angular_velocity(self, value: float) -> None:
+        self._angular_velocity = value
         
-    def movement_cycle(self):
-         while True:
-            sleep(0.00001)
-            with self.lock:
-                print(self)
-                self.update_state()
-                print(self)
-                sleep(self.velocity*self.time_cycle)
-                self.state = Movement.STOP
-                self.update_state()
-                print(self)
-                sleep((1 - self.velocity)*self.time_cycle)
-                
-    def __str__(self):
-        return (
-                "%s \t %s wheel: velocity: %f \t state: %s \t",
-                "next_velocity: %f \t next_state: %s".format(
-                    time(), self.position, self.velocity, self.state, 
-                    self.next_velocity, self.next_state
-                    )
-                )
-    
-class CarCheckWheels:
-    
-    i2c_port_num = 1
-    pcf_address = 0x25
-    
-    def __init__(self, port = i2c_port_num, address = pcf_address) -> None:        
-        self.pcf = PCF8574(port, address)
-        self.lock = Lock()
-        self.time_cycle = 0.5
-        self.move_array = np.ones(8, dtype=bool)
+    @angular_velocity.deleter
+    def angular_velocity(self) -> None:
+        del self._angular_velocity
         
-        self.right_wheel = WheelMotor()
-        self.left_wheel = WheelMotor()
+    def start(self) -> None:
+        self.control_thread.start()
+        self.right_wheel.start()
+        self.left_wheel.start()
         
-        #self.t = Thread(target = self.movement_cycle)
-        #self.t.daemon = True
-    
-    def turn_right_wheel_back(self):
-        self.move_array[4:6] = [True, False]
+    def stop(self) -> None:
+        self.is_control_running = False
+        self.right_wheel.stop()
+        self.left_wheel.stop()
         
-    def turn_right_wheel_forward(self):
-        self.move_array[4:6] = [False, True]
-        
-    def stop_right_wheel(self):
-        self.move_array[4:6] = [True, True]
-    
-    def turn_left_wheel_back(self):
-        self.move_array[5:7] = [True, False]
-    
-    def turn_left_wheel_forward(self):
-        self.move_array[5:7] = [False, True]
-        
-    def stop_left_wheel(self):
-        self.move_array[5:7] = [True, True]
-    
-    def stop(self):
-        self.pcf.port = np.ones(8, dtype=bool)
-        
-    def update_state(self):
-        if self.right_wheel.state==Movement.FORWARD:
-            self.turn_right_wheel_forward()
-        elif self.right_wheel.state==Movement.BACKWARD:
-            self.turn_right_wheel_back()
-        elif self.right_wheel.state==Movement.STOP:
-            self.stop_right_wheel()
-        else:
-            raise ValueError("Uncorrect movement on right wheel!!!")
-        if self.left_wheel.state==Movement.FORWARD:
-            self.turn_left_wheel_forward()
-        elif self.left_wheel.state==Movement.BACKWARD:
-            self.turn_left_wheel_back()
-        elif self.left_wheel.state==Movement.STOP:
-            self.stop_left_wheel()
-        else:
-            raise ValueError("Uncorrect movement on left wheel!!!")
-        
-        self.pcf.port = self.move_array
-                
-    def set_next_move(self, right_wheel_state, left_wheel_state, right_wheel_velocity, left_wheel_velocity):
-        self.right_wheel.set_next_state_velocity(right_wheel_state, right_wheel_velocity)
-        self.left_wheel.set_next_state_velocity(left_wheel_state, left_wheel_velocity)
-        
-    def start_move(self):
-        sleep(2)
-        self.right_wheel.set_next_state_velocity(Movement.FORWARD, 0.1)
-        self.left_wheel.set_next_state_velocity(Movement.FORWARD, 0.7)
-        sleep(2)
-        self.right_wheel.set_next_state_velocity(Movement.FORWARD, 0.7)
-        self.left_wheel.set_next_state_velocity(Movement.FORWARD, 0.1)
-        sleep(2)
-        self.right_wheel.set_next_state_velocity(Movement.BACKWARD, 0.7)
-        self.left_wheel.set_next_state_velocity(Movement.FORWARD, 0.1)
-        sleep(2)
-        self.right_wheel.set_next_state_velocity(Movement.FORWARD, 0.1)
-        self.left_wheel.set_next_state_velocity(Movement.BACKWARD, 0.7)
-        sleep(2)
-        self.right_wheel.set_next_state_velocity(Movement.BACKWARD, 0.7)
-        self.left_wheel.set_next_state_velocity(Movement.BACKWARD, 0.7)
-    # def __str__(self):
-    #     return ("Car state is --\t"
-    #            "Right wheel - {}, {}\t"
-    #            "Left wheel - {}, {}\t"
-    #            "Time - {}").format(self.cur_right_wheel_state, 
-    #                                          self.cur_right_wheel_velocity,
-    #                                          self.cur_left_wheel_state, 
-    #                                          self.cur_left_wheel_velocity,
-    #                                          time()) 
-
-class Car:
-    i2c_port_num = 1
-    pcf_address = 0x25
-    
-    def __init__(self, port = i2c_port_num, address = pcf_address):        
-        #self.pcf = PCF8574(port, address)
-        self.lock = Lock()
-        self.cur_right_wheel_state = Movement.STOP
-        self.cur_left_wheel_state = Movement.STOP
-        self.cur_right_wheel_velocity = 0
-        self.cur_left_wheel_velocity = 0
-        self.next_right_wheel_state = Movement.STOP
-        self.next_left_wheel_state = Movement.STOP
-        self.next_right_wheel_velocity = 0
-        self.next_left_wheel_velocity = 0
-        self.time_cycle = 0.5
-        self.move_array = np.ones(8, dtype=bool)
-        
-        self.t = Thread(target = self.movement_cycle)
-        self.t.daemon = True
-    
-    def turn_right_wheel_back(self):
-        self.move_array[4:6] = [True, False]
-        
-    def turn_right_wheel_forward(self):
-        self.move_array[4:6] = [False, True]
-        
-    def stop_right_wheel(self):
-        self.move_array[4:6] = [True, True]
-    
-    def turn_left_wheel_back(self):
-        self.move_array[5:7] = [True, False]
-    
-    def turn_left_wheel_forward(self):
-        self.move_array[5:7] = [False, True]
-        
-    def stop_left_wheel(self):
-        self.move_array[5:7] = [True, True]
-    
-    #def stop(self):
-        #self.pcf.port = np.ones(8, dtype=bool)
-        
-    def update_state(self):
-        if self.cur_right_wheel_state==Movement.FORWARD:
-            self.turn_right_wheel_forward()
-        elif self.cur_right_wheel_state==Movement.BACKWARD:
-            self.turn_right_wheel_back()
-        elif self.cur_right_wheel_state==Movement.STOP:
-            self.stop_right_wheel()
-        else:
-            raise ValueError("Uncorrect movement on right wheel!!!")
-        if self.cur_left_wheel_state==Movement.FORWARD:
-            self.turn_left_wheel_forward()
-        elif self.cur_left_wheel_state==Movement.BACKWARD:
-            self.turn_left_wheel_back()
-        elif self.cur_left_wheel_state==Movement.STOP:
-            self.stop_left_wheel()
-        else:
-            raise ValueError("Uncorrect movement on left wheel!!!")
-        
-        self.pcf.port = self.move_array
-    
-    def movement_cycle(self):
-        while True:
-            sleep(0.00001)
-            with self.lock:
-                print(self)
-                self.cur_right_wheel_state = self.next_right_wheel_state
-                self.cur_left_wheel_state = self.next_left_wheel_state
-                self.cur_right_wheel_velocity = self.next_right_wheel_velocity
-                self.cur_left_wheel_velocity = self.next_left_wheel_velocity
-                self.update()
-                print(self)
-                if (self.cur_right_wheel_velocity < self.cur_left_wheel_velocity):
-                    sleep(self.cur_right_wheel_velocity*self.time_cycle)
-                    self.cur_right_wheel_state = Movement.STOP
-                    self.update()
-                    print(self)
-                    sleep((self.cur_left_wheel_velocity - self.cur_right_wheel_velocity)*self.time_cycle)
-                    self.cur_left_wheel_state = Movement.STOP
-                    self.update()
-                    print(self)
-                    sleep((1 - self.cur_left_wheel_velocity)*self.time_cycle)
-                elif (self.cur_left_wheel_velocity < self.cur_right_wheel_velocity):
-                    sleep(self.cur_left_wheel_velocity*self.time_cycle)
-                    self.cur_left_wheel_state = Movement.STOP
-                    self.update()
-                    print(self)
-                    sleep((self.cur_right_wheel_velocity - self.cur_left_wheel_velocity)*self.time_cycle)
-                    self.cur_right_wheel_state = Movement.STOP
-                    self.update()
-                    print(self)
-                    sleep((1 - self.cur_right_wheel_velocity)*self.time_cycle)
-                else:
-                    sleep(self.cur_right_wheel_velocity)
-                    self.cur_right_wheel_state = Movement.STOP
-                    self.cur_left_wheel_state = Movement.STOP
-                    self.update()
-                    print(self)
-                    sleep((1 - self.cur_right_wheel_velocity)*self.time_cycle)
-                print(self)
-                
-    def set_next_move(self, right_wheel_state, left_wheel_state, right_wheel_velocity, left_wheel_velocity):
-        self.lock.acquire()
-        self.next_right_wheel_state = right_wheel_state
-        self.next_left_wheel_state = left_wheel_state
-        self.next_right_wheel_velocity = right_wheel_velocity
-        self.next_left_wheel_velocity = left_wheel_velocity
-        self.lock.release()
-        
-    def start_move(self):
-        self.t.start()
-        
-    def __str__(self):
-        return ("Car state is --\t"
-               "Right wheel - {}, {}\t"
-               "Left wheel - {}, {}\t"
-               "Time - {}").format(self.cur_right_wheel_state, 
-                                             self.cur_right_wheel_velocity,
-                                             self.cur_left_wheel_state, 
-                                             self.cur_left_wheel_velocity,
-                                             time()) 
-
 if __name__=="__main__":
+    # wheel = WheelMotor("Check Motor", [False, False], 0.1)
+    # wheel.start()
+    # wheel.velocity = 0.1
+    # sleep(2)
+    # wheel.velocity = 0.5
+    # sleep(2)
+    # wheel.velocity = 1
+    # sleep(2)
+    # wheel.velocity = 0
+    # sleep(2)
+    # wheel.stop()
+    # a = [False, False]
+    # pwm = PWM(a, [False, False], [True, True], 2)
+    # pwm.start()
+    # i = 0
+    # while i<10000:
+    #     print(a)
+    #     if i>5000:
+    #         pwm.duty_cycle = 10
+    #     i+=1
+    # pwm.stop()
+    # ac = ArrayClass()
+    # ac.start()
+    # sleep(4)
+    CWTW = CarWithTwoWheels()
+    CWTW.start()
+    sleep(1)
+    print("CHANGE")
+    CWTW.linear_velocity = 1.0
+    sleep(2)
+    print("CHANGE")
+    CWTW.linear_velocity = 0.2
+    sleep(2)
+    print("CHANGE")
+    CWTW.linear_velocity = -0.1
+    sleep(2)
+    print("CHANGE")
+    CWTW.linear_velocity = 0.5
+    sleep(2)
+    print("CHANGE")
+    CWTW.linear_velocity = 1.0
+    sleep(4)
+    print("CHANGE")
+    CWTW.stop()
+    sleep(1)
     # car = Car()
     # car.start_move()
     # sleep(2)
@@ -276,5 +118,5 @@ if __name__=="__main__":
     # sleep(4)
     # car.set_next_move(Movement.FORWARD, Movement.FORWARD, 0.75, 0.25)
     # sleep(5)
-    check = CarCheckWheels()
-    check.start_move()
+    #check = CarCheckWheels()
+    #check.start_move()
